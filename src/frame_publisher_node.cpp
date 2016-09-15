@@ -38,38 +38,21 @@
 /*
  * Author: Sofie Nilsson
  */
+ 
+#include <ros/ros.h>
+#include <pointcloud_to_laserscan/frame_publisher.h>
 
-/* 
- * The scan_outlier_removal_filter removes noise clusters with much smaller range than the surrounding points. 
- * The filter can be configured with the following three parameters cluster_break_distance, max_noise_cluster_size, 
- * max_noise_cluster_distance. 
- */
+int main(int argc, char **argv)
+{
+  ros::init(argc, argv, "msh_frame_publisher_node");
+  FramePublisher* ad = new FramePublisher();
 
-#ifndef IPA_POINTCLOUD_TO_LASERSCAN_SCAN_OUTLIER_REMOVAL_FILTER
-#define IPA_POINTCLOUD_TO_LASERSCAN_SCAN_OUTLIER_REMOVAL_FILTER
+  if (!ad->initialize())
+  {
+    ROS_ERROR("Failed to initialize FramePublisher");
+    return -1;
+  }
 
-#include <sensor_msgs/LaserScan.h>
-
- namespace scan_outlier_filter
- {
-   class ScanOutlierRemovalFilter
-   {
-   private:
-    bool filter_configured_;
-    double cluster_break_distance_; 
-    int max_noise_cluster_size_; 
-    double max_noise_cluster_distance_;
-
-  public:
-    ScanOutlierRemovalFilter(): 
-    filter_configured_(false), 
-    cluster_break_distance_(0.0), 
-    max_noise_cluster_size_(0), 
-    max_noise_cluster_distance_(0.0)
-    {};
-    void configure(const double cluster_break_distance, const int max_noise_cluster_size, const double max_noise_cluster_distance);
-
-    void remove_outliers(sensor_msgs::LaserScan &scan);
-  };
+  ros::spin();
+  return 0;
 }
-#endif //IPA_POINTCLOUD_TO_LASERSCAN_SCAN_OUTLIER_REMOVAL_FILTER

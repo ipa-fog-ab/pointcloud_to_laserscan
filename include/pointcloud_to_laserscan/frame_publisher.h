@@ -1,4 +1,3 @@
-
 /*
  * Software License Agreement (BSD License)
  *
@@ -39,37 +38,34 @@
  * Author: Sofie Nilsson
  */
 
-/* 
- * The scan_outlier_removal_filter removes noise clusters with much smaller range than the surrounding points. 
- * The filter can be configured with the following three parameters cluster_break_distance, max_noise_cluster_size, 
- * max_noise_cluster_distance. 
- */
+#ifndef FRAME_PUB_H
+#define FRAME_PUB_H
 
-#ifndef IPA_POINTCLOUD_TO_LASERSCAN_SCAN_OUTLIER_REMOVAL_FILTER
-#define IPA_POINTCLOUD_TO_LASERSCAN_SCAN_OUTLIER_REMOVAL_FILTER
+#include <ros/ros.h>
 
-#include <sensor_msgs/LaserScan.h>
+#include <tf/transform_listener.h>
+#include <tf/transform_broadcaster.h>
+#include <tf/transform_datatypes.h>
 
- namespace scan_outlier_filter
- {
-   class ScanOutlierRemovalFilter
-   {
-   private:
-    bool filter_configured_;
-    double cluster_break_distance_; 
-    int max_noise_cluster_size_; 
-    double max_noise_cluster_distance_;
+class FramePublisher
+{
+public:
+  bool initialize();
 
-  public:
-    ScanOutlierRemovalFilter(): 
-    filter_configured_(false), 
-    cluster_break_distance_(0.0), 
-    max_noise_cluster_size_(0), 
-    max_noise_cluster_distance_(0.0)
-    {};
-    void configure(const double cluster_break_distance, const int max_noise_cluster_size, const double max_noise_cluster_distance);
+private:
+  void frameBroadcastCallback(const ros::TimerEvent& event);
 
-    void remove_outliers(sensor_msgs::LaserScan &scan);
-  };
-}
-#endif //IPA_POINTCLOUD_TO_LASERSCAN_SCAN_OUTLIER_REMOVAL_FILTER
+private:
+  ros::NodeHandle nh_, priv_nh_;
+  tf::TransformListener tf_listener_;
+  tf::TransformBroadcaster tf_broadcaster_;
+
+  ros::Timer frame_broadcast_timer_;
+  double update_rate_;
+  std::string base_frame_;
+  std::string rotation_frame_;
+  std::string target_frame_;
+  bool rot_z_, rot_x_, rot_y_;
+};
+
+#endif  // FRAME_PUB_H
