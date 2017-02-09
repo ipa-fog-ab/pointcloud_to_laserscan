@@ -158,6 +158,14 @@ void RoiOutlierRemovalNodelet::cloudCb(const sensor_msgs::PointCloud2ConstPtr &c
   reduce_point_cloud_to_roi(pcl_cloud, reduced_pcl_cloud, T);
   NODELET_DEBUG_STREAM("cloud reduced");
 
+  //add at least one point so the pcl statistical outlier filter
+  //gets an not empty point cloud. On empty points clouds the console
+  //is flooded with error messages
+  if(reduced_pcl_cloud->points.empty())
+  {
+    reduced_pcl_cloud->points.push_back(pcl::PointXYZ(0.0,0.0,0.0));
+  }
+
   // assign output message
   sensor_msgs::PointCloud2 output;
 
