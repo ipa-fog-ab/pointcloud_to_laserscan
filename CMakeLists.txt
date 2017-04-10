@@ -46,10 +46,16 @@ target_link_libraries(ipa_pointcloud_to_laserscan ${catkin_LIBRARIES})
 add_executable(ipa_pointcloud_to_laserscan_node src/ipa_pointcloud_to_laserscan_node.cpp src/scan_outlier_removal_filter.cpp)
 target_link_libraries(ipa_pointcloud_to_laserscan_node ipa_pointcloud_to_laserscan ${catkin_LIBRARIES})
 
-install(TARGETS pointcloud_to_laserscan pointcloud_to_laserscan_node ipa_pointcloud_to_laserscan ipa_pointcloud_to_laserscan_node 
-	RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-	LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-	ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION})
+install(TARGETS frame_publisher
+                frame_publisher_node
+                roi_outlier_removal
+                pointcloud_to_laserscan
+                pointcloud_to_laserscan_node
+                ipa_pointcloud_to_laserscan
+                ipa_pointcloud_to_laserscan_node
+  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
+  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION})
 
 install(DIRECTORY include/${PROJECT_NAME}/
   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
@@ -58,6 +64,6 @@ install(FILES nodelets.xml
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
 
-install(DIRECTORY launch
+install(DIRECTORY config launch
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )
