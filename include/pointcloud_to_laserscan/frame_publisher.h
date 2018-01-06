@@ -43,13 +43,19 @@
 
 #include <ros/ros.h>
 
-#include <tf/transform_listener.h>
-#include <tf/transform_broadcaster.h>
-#include <tf/transform_datatypes.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/transform_broadcaster.h>
+#include <tf2/LinearMath/Transform.h>
+#include <tf2/transform_datatypes.h>
+#include <tf2/convert.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 class FramePublisher
 {
 public:
+  FramePublisher();
+  ~FramePublisher();
   bool initialize();
 
 private:
@@ -57,8 +63,10 @@ private:
 
 private:
   ros::NodeHandle nh_, priv_nh_;
-  tf::TransformListener tf_listener_;
-  tf::TransformBroadcaster tf_broadcaster_;
+
+  tf2_ros::Buffer tf_buffer_;
+  tf2_ros::TransformListener tf_listener_;
+  tf2_ros::TransformBroadcaster tf_broadcaster_;
 
   ros::Timer frame_broadcast_timer_;
   double update_rate_;

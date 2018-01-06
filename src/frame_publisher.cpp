@@ -41,6 +41,13 @@
  
 #include <pointcloud_to_laserscan/frame_publisher.h>
 
+FramePublisher::FramePublisher() :
+  tf_listener_(tf_buffer_)
+{}
+
+FramePublisher::~FramePublisher()
+{}
+
 bool FramePublisher::initialize()
 {
   priv_nh_ = ros::NodeHandle("~");
@@ -64,22 +71,23 @@ bool FramePublisher::initialize()
 
 /// Broadcast a frame aligned with the base frame but rotated around specified axes as rotation_frame 
 void FramePublisher::frameBroadcastCallback(const ros::TimerEvent& event)
-{   
-  tf::StampedTransform frame_transform;
-  try
-  {
-    tf_listener_.waitForTransform(base_frame_, rotation_frame_, event.current_real, ros::Duration(0.1));
-    tf_listener_.lookupTransform(base_frame_, rotation_frame_, ros::Time(0), frame_transform);
+{
+  ros::Time time = event.current_real;
+  geometry_msgs::TransformStamped transform_msg;
+  try{
+    transform_msg = tf_buffer_.lookupTransform(base_frame_, rotation_frame_, time, ros::Duration(0.1));
   }
-  catch (tf::TransformException& ex)
+  catch(tf2::TransformException &ex)
   {
-    ROS_ERROR("FramePublisher::getTransform: \n%s", ex.what());
+    ROS_ERROR("FramePublisher::frameBroadcastCallback: \n%s",ex.what());
     return;
   }
+  //ROS_WARN_STREAM("FramePublisher::frameBroadcastCallback: \n" << transform_msg);
 
+  tf2::Stamped<tf2::Transform> transform_tf;
+  tf2::fromMsg(transform_msg, transform_tf);
   double rot_frame_roll, rot_frame_pitch, rot_frame_yaw;
-  frame_transform.getBasis().getRPY(rot_frame_roll, rot_frame_pitch, rot_frame_yaw);
-  tf::Transform target_transform(frame_transform.getRotation());
+  transform_tf.getBasis().getRPY(rot_frame_roll, rot_frame_pitch, rot_frame_yaw);
 
   // Use rotations according to settings
   double target_frame_roll = 0;
@@ -89,8 +97,13 @@ void FramePublisher::frameBroadcastCallback(const ros::TimerEvent& event)
   if (rot_x_){ target_frame_roll = rot_frame_roll;}
   if (rot_y_){ target_frame_pitch = rot_frame_pitch;}
 
-  target_transform.getBasis().setRPY(target_frame_roll, target_frame_pitch, target_frame_yaw);
+  tf2::Stamped<tf2::Transform> target_tf(transform_tf);  //keep header
+  target_tf.setOrigin(tf2::Vector3(0,0,0));
+  target_tf.getBasis().setRPY(target_frame_roll, target_frame_pitch, target_frame_yaw);
 
   // Broadcast new frame
-  tf_broadcaster_.sendTransform(tf::StampedTransform(target_transform, frame_transform.stamp_, base_frame_, target_frame_));
+  geometry_msgs::TransformStamped target_msg = tf2::toMsg(target_tf);
+  target_msg.child_frame_id = target_frame_;
+  //ROS_ERROR_STREAM("FramePublisher::frameBroadcastCallback: \n" << target_msg);
+  tf_broadcaster_.sendTransform(target_msg);
 }
