@@ -44,12 +44,8 @@
 #include <sensor_msgs/LaserScan.h>
 #include <pluginlib/class_list_macros.h>
 #include <sensor_msgs/point_cloud2_iterator.h>
-#include <pcl/io/pcd_io.h>
-#include <pcl/point_types.h>
-#include <pcl/conversions.h>
-#include <pcl_conversions/pcl_conversions.h>
-#include <iostream>
 
+#include <iostream>
 
 using namespace pointcloud_to_laserscan;
 
@@ -62,7 +58,7 @@ void IpaPointCloudToLaserScanNodelet::onInit()
 
   private_nh_.param<std::string>("target_frame", target_frame_, "");
   private_nh_.param<double>("transform_tolerance", tolerance_, 0.01);
-  private_nh_.param<double>("min_height", min_height_, 0.0);
+  private_nh_.param<double>("min_height", min_height_, -1.0);
   private_nh_.param<double>("max_height", max_height_, 1.0);
 
   private_nh_.param<double>("angle_min", angle_min_, -M_PI / 2.0);
@@ -75,7 +71,7 @@ void IpaPointCloudToLaserScanNodelet::onInit()
   int concurrency_level;
   private_nh_.param<int>("concurrency_level", concurrency_level, 1);
   private_nh_.param<bool>("use_inf", use_inf_, true);
-
+  private_nh_.param<bool>("neg_detection", neg_detection_, true);
   configure_filter();
 
     //Check if explicitly single threaded, otherwise, let nodelet manager dictate thread pool size
@@ -107,7 +103,7 @@ void IpaPointCloudToLaserScanNodelet::onInit()
 
   pub_ = nh_.advertise<sensor_msgs::LaserScan>("scan", 10);
     // set subscriber and callback for input cloud
-  sub_ = nh_.subscribe("camera/depth/color/points", input_queue_size_, &IpaPointCloudToLaserScanNodelet::cloudCb, this );
+  sub_ = nh_.subscribe("cloud_in", input_queue_size_, &IpaPointCloudToLaserScanNodelet::cloudCb, this );
 }
 
 void IpaPointCloudToLaserScanNodelet::configure_filter()
@@ -127,39 +123,11 @@ void IpaPointCloudToLaserScanNodelet::configure_filter()
   outlier_filter_.configure(cluster_break_distance, max_noise_cluster_size, max_noise_cluster_distance);
 }
 
-
-// new addition : use pcl to mirror about z axis and concatenate pointclouds.
-
-void IpaPointCloudToLaserScanNodelet::concatenate_PCL(const pcl::PointCloud<pcl::PointXYZ> cloud_in)
-{
-  cloud1_in = cloud_in;
- 
-  for (size_t i=0 ; i<cloud1_in.points.size() ; ++i)
-  {
-    cloud2_in.points[i].x = cloud1_in.points[i].x;
-    cloud2_in.points[i].y = cloud1_in.points[i].y;
-    cloud2_in.points[i].z = -(cloud1_in.points[i].z);
-  }
-  cloud_out = cloud1_in + cloud2_in;
-  //pcl::concatenateFields(cloud1_in , cloud2_in, cloud_out);		
-
-}
-
-
 void IpaPointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2ConstPtr &cloud_msg)
 {
   ros::Time start_time = ros::Time::now();
   NODELET_DEBUG_STREAM("PC with timestamp from init " << cloud_msg->header.stamp.toSec() << " recevied with a delay of " << (start_time - cloud_msg->header.stamp).toSec() << " ");
 
-//new addition : convert sensor_msgs::PointCloud2 to pcl::PointCloud<PointXYZ>   
-  pcl::PCLPointCloud2 pcl_pc2;
-  pcl_conversions::toPCL(*cloud_msg,pcl_pc2);
-  pcl::PointCloud<pcl::PointXYZ>::Ptr temp_cloud (new pcl::PointCloud<pcl::PointXYZ>);
-  pcl::fromPCLPointCloud2(pcl_pc2,*temp_cloud);
-
-  concatenate_PCL(*temp_cloud);
-  
- 
   // remove leading / on frame id in case present, which is not supported by tf2
   // does not do anything if the problem dies not occur -> leave for compatibility
   std::string cloud_frame_id = cloud_msg->header.frame_id;
@@ -167,7 +135,7 @@ void IpaPointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2Cons
   { 
     cloud_frame_id.erase(0,1);
   }
-  
+
   // Get frame tranformation
   tf2::Transform T;
 
@@ -175,8 +143,7 @@ void IpaPointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2Cons
   {
     try
     {
-
-      geometry_msgs::TransformStamped T_geom = tf2_->lookupTransform(target_frame_, cloud_frame_id, cloud_msg->header.stamp, ros::Duration(0.1));
+      geometry_msgs::TransformStamped T_geom = tf2_->lookupTransform(cloud_frame_id, target_frame_, cloud_msg->header.stamp, ros::Duration(0.1));
       // Convert geometry msgs transform to tf2 transform.
       tf2::fromMsg(T_geom.transform, T);
     }
@@ -185,8 +152,6 @@ void IpaPointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2Cons
       NODELET_DEBUG_STREAM("Transform failure: " << ex.what());
       return;
     }
-
-
   }
   else
   {
@@ -225,7 +190,7 @@ void IpaPointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2Cons
   }
 
   // convert pointcloud to laserscan
-  convert_pointcloud_to_laserscan(temp_cloud, output, T, range_min_);
+  convert_pointcloud_to_laserscan(cloud_msg, output, T, range_min_);
 
   if(use_outlier_filter_)
   {
@@ -247,11 +212,10 @@ void IpaPointCloudToLaserScanNodelet::cloudCb(const sensor_msgs::PointCloud2Cons
  * Theborders for the point selection is transformed into pointcloud frame in order 
  * save time by avoiding unnessecairy point transformations
  */
-void IpaPointCloudToLaserScanNodelet::convert_pointcloud_to_laserscan(const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud, 
+void IpaPointCloudToLaserScanNodelet::convert_pointcloud_to_laserscan(const sensor_msgs::PointCloud2ConstPtr &cloud, 
                                                                       sensor_msgs::LaserScan &output, 
                                                                       const tf2::Transform &T, const double range_min )
 {
-  
   // Transform borders and target plane to original coordinates (saved resources to not have to transform the whole point cloud)
   // A plane is described by all points fulfilling p= A + l1*e1 + l2*e2.
   // Transformation to other coordinate frame with transformation T gives: p'= T(A) + l1*T(e1) + l2*T(e2)
@@ -261,9 +225,17 @@ void IpaPointCloudToLaserScanNodelet::convert_pointcloud_to_laserscan(const pcl:
   tf2::Vector3 A_max_o_frame = T(A_max_t_frame);
   NODELET_DEBUG_STREAM("A max: " << A_max_o_frame.getX() <<", "<< A_max_o_frame.getY() <<", "<< A_max_o_frame.getZ());
 
+  tf2::Vector3 A_max_mid_t_frame(0, 0, 0.1);
+  tf2::Vector3 A_max_mid_o_frame = T(A_max_mid_t_frame);
+  NODELET_DEBUG_STREAM("A max: " << A_max_mid_o_frame.getX() <<", "<< A_max_mid_o_frame.getY() <<", "<< A_max_mid_o_frame.getZ());
+
   tf2::Vector3 A_min_t_frame(0, 0, min_height_);
   tf2::Vector3 A_min_o_frame = T(A_min_t_frame); // want to get the orientation vector in the new coordinates
   NODELET_DEBUG_STREAM("A min: " << A_min_o_frame.getX() <<", "<< A_min_o_frame.getY() <<", "<< A_min_o_frame.getZ());
+
+  tf2::Vector3 A_min_mid_t_frame(0, 0, -0.1);
+  tf2::Vector3 A_min_mid_o_frame = T(A_min_mid_t_frame);
+  NODELET_DEBUG_STREAM("A min: " << A_min_mid_o_frame.getX() <<", "<< A_min_mid_o_frame.getY() <<", "<< A_min_mid_o_frame.getZ());
 
   // Transform plane basis vectors -> use only rotation
   tf2::Vector3 ex_t_frame(1, 0, 0);
@@ -281,24 +253,36 @@ void IpaPointCloudToLaserScanNodelet::convert_pointcloud_to_laserscan(const pcl:
   // Declare help variables
   tf2::Vector3 P;
   double lambda_x, lambda_y;
-  tf2::Vector3 P_max;
-  tf2::Vector3 P_min;
-  double border_distance_sqared;
+  tf2::Vector3 P_max, P_max_mid;
+  tf2::Vector3 P_min, P_min_mid;
+  double border_distance_sqared, border_distance_sqared_mid;
   double range;
   double angle;
   int index;
 
   // Iterate through pointcloud
-  for (pcl::PointCloud<pcl::PointXYZ>::iterator it = cloud->begin(); it != cloud->end(); ++it)
-  { 
-    if (std::isnan(it->x) || std::isnan(it->y) || std::isnan(it->z))
+  for (sensor_msgs::PointCloud2ConstIterator<float>
+    iter_x(*cloud, "x"), iter_y(*cloud, "y"), iter_z(*cloud, "z");
+    iter_x != iter_x.end();
+    ++iter_x, ++iter_y, ++iter_z)
+  {
+    if (std::isnan(*iter_x) || std::isnan(*iter_y) || std::isnan(*iter_z))
     {
-      NODELET_DEBUG("rejected for nan in point(%f, %f, %f)\n", it->x, it->y, it->z);
+      NODELET_DEBUG("rejected for nan in point(%f, %f, %f)\n", *iter_x, *iter_y, *iter_z);
       continue;
     }
-    
+
+
+    if (*iter_z<=0.1 && *iter_z>=(-0.1))
+    {
+      NODELET_DEBUG("rejected for floor level inaccuracies");
+      continue;
+    }
+
+
     //get reflection point in hight limiting planes in order to check that point lies between borders(above or below is not clearly def):
-    P.setValue(it->x, it->y, it->z);
+    P.setValue(*iter_x, *iter_y, *iter_z);
+    
 
     /**
      * lambda x and y describes the location within the planes, which are the same for all paralell planes with
@@ -311,11 +295,18 @@ void IpaPointCloudToLaserScanNodelet::convert_pointcloud_to_laserscan(const pcl:
      */
     lambda_x =  (P - A_target_o_frame).dot(ex_o_frame);
     lambda_y =  (P - A_target_o_frame).dot(ey_o_frame);
+    
     P_max = A_max_o_frame + lambda_x*ex_o_frame + lambda_y*ey_o_frame;
     P_min = A_min_o_frame + lambda_x*ex_o_frame + lambda_y*ey_o_frame;
 
+    P_max_mid = A_max_mid_o_frame + lambda_x*ex_o_frame + lambda_y*ey_o_frame;
+    P_min_mid = A_min_mid_o_frame + lambda_x*ex_o_frame + lambda_y*ey_o_frame;
+
+   
     border_distance_sqared = P_max.distance2(P_min);
-    if ((P.distance2(P_max) > border_distance_sqared) || (P.distance2(P_min) > border_distance_sqared))
+    border_distance_sqared_mid = P_max_mid.distance2(P_min_mid);
+
+    if ((P.distance2(P_max) > border_distance_sqared) || (P.distance2(P_min) > border_distance_sqared) || (P.getZ()<0.1 && P.getZ()>(-0.1)) || ((border_distance_sqared_mid > P.distance2(P_max_mid)) && (border_distance_sqared_mid > P.distance2(P_min_mid))))
     {
       continue;
     }
@@ -333,12 +324,17 @@ void IpaPointCloudToLaserScanNodelet::convert_pointcloud_to_laserscan(const pcl:
     }
 
     //overwrite range at laserscan ray if new range is smaller
+
     index = (angle - output.angle_min) / output.angle_increment;
     if (range < output.ranges[index])
     {
-      output.ranges[index] = range;
+      if(*iter_z>0.1 && *iter_z<(-0.1)) 
+      {
+        output.ranges[index] = range;
+      }
     }
   }
 }
 
 PLUGINLIB_DECLARE_CLASS(ipa_pointcloud_to_laserscan, IpaPointCloudToLaserScanNodelet, pointcloud_to_laserscan::IpaPointCloudToLaserScanNodelet, nodelet::Nodelet);
+
